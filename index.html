@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>IMPOSTOR v6.0 ELIMINACIÓN</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        :root { --bg: #0a0a0f; --card: #161625; --accent: #ff0040; --blue: #00e0ff; --text: #fff; --gray: #252535; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; font-family: sans-serif; }
+        body { margin: 0; background: var(--bg); color: var(--text); height: 100dvh; display: flex; justify-content: center; overflow: hidden; }
+        .app-container { width: 100%; max-width: 500px; height: 100%; display: flex; flex-direction: column; }
+        .screen { display: none; flex-direction: column; height: 100%; padding: 20px; animation: fadeIn 0.3s; }
+        .active { display: flex; }
+        .header { flex-shrink: 0; text-align: center; padding-bottom: 10px; }
+        .content { flex: 1; overflow-y: auto; padding-bottom: 10px; }
+        .footer { flex-shrink: 0; padding: 10px 0; background: var(--bg); border-top: 1px solid #333; }
+        .btn { width: 100%; padding: 16px; margin-bottom: 8px; border-radius: 12px; border: none; font-size: 1rem; font-weight: bold; cursor: pointer; color: #fff; }
+        .btn-main { background: var(--accent); }
+        .btn-sec { background: var(--blue); color: #000; }
+        .btn-ghost { background: transparent; border: 1px solid #444; color: #888; }
+        .btn-disabled { opacity: 0.3; pointer-events: none; }
+        input { width: 100%; padding: 15px; border-radius: 10px; background: #111; color: #fff; border: 1px solid #333; text-align: center; }
+        .vote-card { background: var(--card); padding: 15px; margin-bottom: 10px; border-radius: 12px; border: 2px solid transparent; cursor: pointer; }
+        .vote-card.selected { border-color: var(--accent); background: rgba(255,0,64,0.1); }
+        .msg { background: #1e1e2e; padding: 10px; border-radius: 10px; margin-bottom: 8px; width: fit-content; max-width: 85%; }
+        .msg.mine { background: #3a1a25; margin-left: auto; border-right: 3px solid var(--accent); }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <div id="scr-home" class="screen active">
+        <div class="header" style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+            <h1>IMPOSTOR</h1><p>BATTLE ROYALE</p>
+        </div>
+        <div class="footer"><input type="text" id="inp-name" placeholder="Tu Nombre"><button class="btn btn-main" onclick="startApp()" style="margin-top:10px">JUGAR</button></div>
+    </div>
+
+    <div id="scr-mode" class="screen">
+        <div class="header"><h2>MODO</h2></div>
+        <div class="content" style="display:flex; flex-direction:column; justify-content:center;">
+            <button class="btn btn-sec" onclick="setupBots()">🤖 VS BOTS</button>
+            <button class="btn btn-main" onclick="nav('scr-online')">🌍 ONLINE</button>
+        </div>
+    </div>
+
+    <div id="scr-online" class="screen">
+        <div class="header"><h2>ONLINE</h2></div>
+        <div class="content"><button class="btn btn-main" onclick="createRoom()">CREAR</button><input type="text" id="inp-code" placeholder="CÓDIGO" style="margin:10px 0"><button class="btn btn-sec" onclick="joinRoom()">UNIRSE</button></div>
+    </div>
+
+    <div id="scr-lobby" class="screen">
+        <div class="header"><h1>LOBBY</h1><h2 id="lbl-code">----</h2></div>
+        <div class="content" id="lobby-list"></div>
+        <div class="footer"><button id="btn-start" class="btn btn-main btn-disabled" onclick="startGame()">EMPEZAR</button></div>
+    </div>
+
+    <div id="scr-game" class="screen">
+        <div class="header"><p>TU PALABRA</p><h2 id="lbl-word" style="border:1px solid var(--blue); padding:10px;">---</h2></div>
+        <div class="content" id="chat-box"></div>
+        <div class="footer"><input type="text" id="inp-clue" placeholder="Pista..."><button class="btn btn-main" id="btn-send" onclick="sendClue()" style="margin-top:8px">ENVIAR</button></div>
+    </div>
+
+    <div id="scr-vote" class="screen">
+        <div class="header"><h2>VOTACIÓN</h2><p id="vote-count">0/0</p></div>
+        <div class="content" id="vote-list"></div>
+        <div class="footer"><button id="btn-confirm-vote" class="btn btn-main btn-disabled" onclick="confirmVote()">CONFIRMAR</button></div>
+    </div>
+
+    <div id="scr-result" class="screen">
+        <div class="header" style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+            <h1 id="res-status">ELIMINADO</h1>
+            <h2 id="res-name" style="color:var(--accent)">---</h2>
+            <p id="res-msg">Preparando siguiente ronda...</p>
+        </div>
+        <div class="footer" id="footer-result"></div>
+    </div>
+</div>
+
+<script>
+let BBDD = { palabras: [{g:"Gato", i:"Perro"}], respuestas_bots: ["Es común"] };
+let state = { mode:'offline', name:'', id:'', players:[], isHost:false, game:null, peer:null, conns:{} };
+
+// CARGAR JSON
+async function initData() {
+    try {
+        const res = await fetch('datos.json');
+        if(res.ok) BBDD = await res.json();
+    } catch(e) { console.warn("JSON no encontrado, usando backup."); }
+}
+initData();
+
+function nav(id) { document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
+
+function startApp() {
+    state.name = document.getElementById('inp-name').value.toUpperCase();
+    if(!state.name) return; nav('scr-mode');
+}
+
+function setupBots() {
+    state.mode = 'offline'; state.isHost = true; state.id = 'me';
+    state.players = [{id:'me', name:state.name, isBot:false, clue:'', votes:0, out:false}];
+    nav('scr-lobby');
+    const bNames = ["BOT-ALEX", "BOT-SARA", "BOT-MAX", "BOT-NEO", "BOT-ZARA"];
+    bNames.forEach((n,i)=>{
+        setTimeout(()=>{ state.players.push({id:'b'+i, name:n, isBot:true, clue:'', votes:0, out:false}); renderLobby(); }, 300*i);
+    });
+}
+
+function renderLobby() {
+    const list = document.getElementById('lobby-list');
+    list.innerHTML = state.players.filter(p=>!p.out).map(p=>`<div class="vote-card"><b>${p.name}</b></div>`).join('');
+    if(state.isHost && state.players.filter(p=>!p.out).length >= 2) document.getElementById('btn-start').classList.remove('btn-disabled');
+}
+
+// INICIAR RONDA (SE LLAMA VARIAS VECES)
+function startGame() {
+    const alive = state.players.filter(p=>!p.out);
+    if(alive.length < 2) {
+        alert("¡Ganador final: " + alive[0].name + "!");
+        location.reload();
+        return;
+    }
+
+    // Reset de votos y pistas
+    state.players.forEach(p=>{ p.clue=''; p.votes=0; });
+    
+    // Nuevas palabras del JSON
+    const p = BBDD.palabras[Math.floor(Math.random()*BBDD.palabras.length)];
+    const impIdx = Math.floor(Math.random()*alive.length);
+    state.game = { g:p.g, i:p.i, impId: alive[impIdx].id, impName: alive[impIdx].name };
+
+    alive.forEach(pl => {
+        const w = (pl.id === state.game.impId) ? p.i : p.g;
+        if(pl.id === state.id) {
+            nav('scr-game');
+            document.getElementById('lbl-word').innerText = w;
+            document.getElementById('chat-box').innerHTML = '';
+            document.getElementById('btn-send').classList.remove('btn-disabled');
+        }
+        if(state.mode==='online' && !pl.isBot && pl.id !== state.id) state.conns[pl.id].send({type:'START', word:w});
+    });
+
+    if(state.mode === 'offline') simulateBots();
+}
+
+function simulateBots() {
+    const aliveBots = state.players.filter(p=>p.isBot && !p.out);
+    aliveBots.forEach(b => {
+        setTimeout(() => {
+            const f = BBDD.respuestas_bots;
+            b.clue = Array.isArray(f) ? f[Math.floor(Math.random()*f.length)] : "Es interesante";
+            addChat(b.name, b.clue, false);
+            checkClues();
+        }, Math.random()*4000 + 2000);
+    });
+}
+
+function sendClue() {
+    const val = document.getElementById('inp-clue').value;
+    if(!val) return;
+    document.getElementById('btn-send').classList.add('btn-disabled');
+    const me = state.players.find(p=>p.id===state.id);
+    me.clue = val;
+    addChat(state.name, val, true);
+    if(state.mode==='online') {
+        if(state.isHost) broadcast({type:'CHAT', name:state.name, txt:val, pid:state.id});
+        else state.conns['host'].send({type:'CLUE', name:state.name, txt:val});
+    }
+    checkClues();
+}
+
+function addChat(n, t, mine) {
+    const b = document.getElementById('chat-box');
+    b.innerHTML += `<div class="msg ${mine?'mine':''}"><b>${n}:</b><br>${t}</div>`;
+    b.scrollTop = b.scrollHeight;
+}
+
+function checkClues() {
+    const alive = state.players.filter(p=>!p.out);
+    if(alive.every(p=>p.clue!=='')) setTimeout(startVote, 1500);
+}
+
+function startVote() {
+    nav('scr-vote');
+    const alive = state.players.filter(p=>!p.out);
+    document.getElementById('vote-list').innerHTML = alive.map(p=>`
+        <div class="vote-card" id="vc-${p.id}" onclick="selectVote('${p.id}')">
+            <b>${p.name}</b><br><small>"${p.clue}"</small>
+        </div>
+    `).join('');
+    document.getElementById('btn-confirm-vote').style.display = 'block';
+    if(state.mode==='offline') simulateBotVotes();
+}
+
+let selectedId = '';
+function selectVote(id) {
+    selectedId = id;
+    document.querySelectorAll('.vote-card').forEach(c=>c.classList.remove('selected'));
+    document.getElementById('vc-'+id).classList.add('selected');
+    document.getElementById('btn-confirm-vote').classList.remove('btn-disabled');
+}
+
+function confirmVote() {
+    document.getElementById('btn-confirm-vote').style.display = 'none';
+    if(state.isHost || state.mode==='offline') processVote(selectedId);
+    else state.conns['host'].send({type:'VOTE', tid:selectedId});
+}
+
+function processVote(tid) {
+    const target = state.players.find(p=>p.id===tid);
+    target.votes++;
+    const alive = state.players.filter(p=>!p.out);
+    const total = alive.reduce((a,b)=>a+b.votes, 0);
+    if(total >= alive.length) finishRound();
+}
+
+function simulateBotVotes() {
+    const alive = state.players.filter(p=>!p.out);
+    alive.filter(p=>p.isBot).forEach(b=>{
+        setTimeout(()=>processVote(alive[Math.floor(Math.random()*alive.length)].id), Math.random()*5000 + 1000);
+    });
+}
+
+function finishRound() {
+    const alive = state.players.filter(p=>!p.out);
+    const sorted = [...alive].sort((a,b)=>b.votes - a.votes);
+    const expelled = sorted[0];
+    expelled.out = true; // SE ELIMINA DE LA SIGUIENTE RONDA
+
+    const data = { type:'RESULT', name:expelled.name, imp:state.game.impName, g:state.game.g, i:state.game.i, eid: expelled.id };
+    if(state.mode==='online' && state.isHost) broadcast(data);
+    showResult(data);
+}
+
+function showResult(d) {
+    nav('scr-result');
+    document.getElementById('res-name').innerText = d.name;
+    document.getElementById('res-status').innerText = (d.eid === state.id) ? "HAS SIDO ELIMINADO" : "ELIMINADO:";
+    
+    // Si el usuario sigue vivo, botón para siguiente ronda después de 4 segundos
+    if(d.eid !== state.id) {
+        setTimeout(() => { if(state.isHost) startGame(); }, 4000);
+    } else {
+        document.getElementById('res-msg').innerText = "Fin del juego para ti.";
+        document.getElementById('footer-result').innerHTML = `<button class="btn btn-main" onclick="location.reload()">VOLVER AL INICIO</button>`;
+    }
+}
+
+// RED (HOST)
+function broadcast(d) { Object.values(state.conns).forEach(c=>c.send(d)); }
+// Aquí irían las funciones PeerJS (CreateRoom/JoinRoom) adaptadas para llamar a startGame() en cada ronda
+</script>
+</body>
+</html>
