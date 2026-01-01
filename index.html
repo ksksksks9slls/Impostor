@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>IMPOSTOR: FINAL GOLD</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@800&family=Outfit:wght@400;900&display=swap" rel="stylesheet">
+    <style>
+        :root { --blue: #00d2ff; --red: #ff0055; --green: #00ff9f; --bg: #05070a; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+        body { background: var(--bg); color: white; height: 100dvh; width: 100vw; overflow: hidden; font-family: 'Outfit', sans-serif; position: fixed; }
+
+        #app { position: relative; width: 100%; height: 100%; }
+
+        .screen { 
+            position: absolute; inset: 0; padding: 25px; display: none; flex-direction: column;
+            opacity: 0; transform: scale(1.05);
+            transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.17, 0.67, 0.83, 0.67);
+            background: var(--bg); z-index: 1;
+        }
+
+        /* Clase para activar pantalla con seguridad de renderizado */
+        .screen.active { display: flex; opacity: 1; transform: scale(1); z-index: 10; }
+
+        .glass { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 25px; padding: 20px; backdrop-filter: blur(15px); }
+        
+        .btn { 
+            width: 100%; padding: 18px; border-radius: 18px; border: none; font-weight: 900; 
+            cursor: pointer; text-transform: uppercase; font-family: 'Orbitron'; font-size: 0.85rem;
+            color: white; margin: 8px 0; transition: 0.2s;
+        }
+        .btn-blue { background: linear-gradient(135deg, #00d2ff, #0076ff); box-shadow: 0 4px 15px rgba(0,210,255,0.2); }
+        .btn-red { background: linear-gradient(135deg, #ff0055, #ff5e00); box-shadow: 0 4px 15px rgba(255,0,85,0.2); }
+        .btn:active { transform: scale(0.95); opacity: 0.8; }
+        .btn:disabled { background: #222; opacity: 0.3; box-shadow: none; }
+
+        input { width: 100%; padding: 16px; background: #111; border: 1px solid #333; border-radius: 15px; color: white; text-align: center; font-size: 1.1rem; margin-bottom: 12px; }
+        
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; flex: 1; overflow-y: auto; margin: 15px 0; }
+        .card { padding: 15px; background: rgba(255,255,255,0.05); border-radius: 18px; border: 2px solid transparent; transition: 0.3s; }
+        .card.selected { border-color: var(--blue); background: rgba(0,210,255,0.15); }
+
+        /* Pantalla de Votos */
+        .vote-row { margin: 12px 0; }
+        .bar-bg { width: 100%; height: 10px; background: #111; border-radius: 10px; overflow: hidden; margin-top: 6px; }
+        .bar-fill { height: 100%; width: 0%; background: var(--blue); transition: width 0.8s ease-out; }
+
+        .dot { width: 10px; height: 10px; border-radius: 50%; background: #222; transition: 0.3s; }
+        .dot.on { background: var(--green); box-shadow: 0 0 10px var(--green); }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div id="scr-init" class="screen active">
+        <h1 style="font-family:'Orbitron'; text-align:center; color:var(--red); font-size:2rem; margin: 40px 0; letter-spacing: 4px;">IMPOSTOR</h1>
+        <div class="glass" style="margin-top:auto;">
+            <input type="text" id="name-in" placeholder="TU NOMBRE">
+            <button class="btn btn-blue" onclick="App.init(true)">CREAR SALA</button>
+            <input type="text" id="code-in" placeholder="CÓDIGO">
+            <button class="btn btn-red" onclick="App.init(false)">UNIRSE</button>
+        </div>
+    </div>
+
+    <div id="scr-lobby" class="screen">
+        <h2 style="font-family:'Orbitron'; font-size:0.9rem; color:var(--blue);">SALA DE ESPERA</h2>
+        <div id="host-info" style="text-align:center; margin: 20px 0; display:none;">
+            <div id="code-display" style="font-size:3.5rem; font-family:'Orbitron'; color:white;">----</div>
+        </div>
+        <div id="list-players" class="grid"></div>
+        <button id="btn-start" class="btn btn-blue" style="display:none" onclick="App.hostBegin()">INICIAR JUEGO</button>
+    </div>
+
+    <div id="scr-hint" class="screen">
+        <div class="glass" style="text-align:center; border-bottom: 4px solid var(--blue);">
+            <p style="color:#666; font-size:0.7rem; font-weight:900;">TU PALABRA SECRETA</p>
+            <h2 id="word-display" style="font-family:'Orbitron'; font-size:2.3rem;">---</h2>
+        </div>
+        <div id="list-hints-status" class="grid"></div>
+        <div id="hint-input-box" class="glass">
+            <input type="text" id="hint-val" placeholder="TU PISTA...">
+            <button class="btn btn-blue" id="btn-send-hint" onclick="App.sendHint()">ENVIAR</button>
+        </div>
+        <div id="wait-hints" style="display:none; text-align:center; margin-top:10px; font-size:0.8rem; color:var(--blue);">SINCRONIZANDO TRANSMISIONES...</div>
+    </div>
+
+    <div id="scr-vote" class="screen">
+        <h2 style="font-family:'Orbitron'; color:var(--red); text-align:center; margin-bottom:10px;">ELIMINACIÓN</h2>
+        <div id="list-voting" class="grid"></div>
+        <button id="btn-confirm-vote" class="btn btn-red" disabled onclick="App.confirmVote()">CONFIRMAR VOTO</button>
+    </div>
+
+    <div id="scr-counting" class="screen" style="justify-content:center;">
+        <h2 style="font-family:'Orbitron'; text-align:center; margin-bottom:20px;">RECUENTO</h2>
+        <div class="glass" id="counting-bars-container"></div>
+    </div>
+
+    <div id="scr-result" class="screen" style="justify-content:center; text-align:center;">
+        <div class="glass">
+            <h2 id="res-name" style="font-family:'Orbitron'; font-size:2.2rem;">---</h2>
+            <h1 id="res-role" style="font-size:1.6rem; margin:15px 0;">---</h1>
+            <p id="game-status-msg" style="color:var(--blue); font-weight:900; margin-bottom:20px;"></p>
+            <button id="btn-next" class="btn btn-blue" style="display:none" onclick="App.nextRound()">CONTINUAR</button>
+            <button id="btn-restart" class="btn btn-red" style="display:none" onclick="location.reload()">REINICIAR</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const Sfx = {
+    ctx: new (window.AudioContext || window.webkitAudioContext)(),
+    play(f, d) {
+        let o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        o.frequency.value = f; g.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + d);
+        o.connect(g); g.connect(this.ctx.destination); o.start(); o.stop(this.ctx.currentTime + d);
+    },
+    click() { this.play(600, 0.1); if(navigator.vibrate) navigator.vibrate(30); },
+    alert() { this.play(200, 0.4); if(navigator.vibrate) navigator.vibrate([100, 50, 100]); },
+    win() { this.play(1000, 0.6); if(navigator.vibrate) navigator.vibrate([50, 50, 200]); }
+};
+
+const App = {
+    peer: null, conns: [], conn: null, isHost: false, myId: '', myName: '',
+    players: [], word: '', impId: '', hints: {}, votes: {}, deadIds: [],
+
+    init(host) {
+        const name = document.getElementById('name-in').value.trim();
+        if(!name) return;
+        Sfx.click();
+        this.myName = name.toUpperCase();
+        this.isHost = host;
+        this.peer = new Peer(host ? Math.floor(1000 + Math.random()*9000).toString() : null);
+        
+        this.peer.on('open', id => {
+            this.myId = id;
+            if(host) {
+                document.getElementById('code-display').innerText = id;
+                document.getElementById('host-info').style.display = 'block';
+                this.players = [{id, name: this.myName}];
+                this.updateLobby();
+                this.nav('scr-lobby');
+            } else {
+                const target = document.getElementById('code-in').value.trim();
+                this.conn = this.peer.connect(target);
+                this.bind(this.conn);
+            }
+        });
+        this.peer.on('connection', c => this.bind(c));
+    },
+
+    bind(c) {
+        c.on('open', () => { if(!this.isHost) { c.send({type:'join', n:this.myName}); this.nav('scr-lobby'); } });
+        c.on('data', d => {
+            if(d.type==='join' && this.isHost) {
+                this.players.push({id: c.peer, name: d.n});
+                this.conns.push(c);
+                this.bcast({type:'list', l:this.players});
+                this.updateLobby();
+            }
+            if(d.type==='list') { this.players = d.l; this.updateLobby(); }
+            if(d.type==='start') this.onStart(d.w, d.imp, d.reset);
+            if(d.type==='h-sync' && this.isHost) { this.hints[c.peer] = d.h; this.bcast({type:'live-h', h: this.hints}); this.checkHints(); }
+            if(d.type==='live-h') { this.hints = d.h; this.updateHintsStatus(); }
+            if(d.type==='go-vote') { this.hints = d.h; this.onVotePhase(); }
+            if(d.type==='v-sync' && this.isHost) { this.votes[c.peer] = d.tid; this.checkVotes(); }
+            if(d.type==='scrum') this.startEscrutinio(d.v, d.tid, d.over);
+            if(d.type==='next') this.onStart(this.wordObj, this.impId, false);
+        });
+    },
+
+    bcast(d) { this.conns.forEach(c => c.send(d)); },
+
+    updateLobby() {
+        document.getElementById('list-players').innerHTML = this.players.map(p => `<div class="card"><b>${p.name}</b></div>`).join('');
+        if(this.isHost) document.getElementById('btn-start').style.display = (this.players.length >= 3) ? 'block' : 'none';
+    },
+
+    hostBegin() {
+        const db = [{g:"PLAYA", i:"PISCINA"}, {g:"AVIÓN", i:"COHETE"}, {g:"TIGRE", i:"GATO"}];
+        const p = db[Math.floor(Math.random()*db.length)];
+        this.impId = this.players[Math.floor(Math.random()*this.players.length)].id;
+        this.bcast({type:'start', w:p, imp: this.impId, reset: true});
+        this.onStart(p, this.impId, true);
+    },
+
+    onStart(w, impId, reset) {
+        Sfx.alert();
+        if(reset) this.deadIds = [];
+        this.wordObj = w; 
+        this.word = (this.myId === impId) ? w.i : w.g;
+        this.impId = impId; this.hints = {}; this.votes = {};
+        this.nav('scr-hint');
+        document.getElementById('word-display').innerText = this.word;
+        document.getElementById('hint-input-box').style.display = 'block';
+        document.getElementById('wait-hints').style.display = 'none';
+        this.updateHintsStatus();
+    },
+
+    updateHintsStatus() {
+        const alive = this.players.filter(p => !this.deadIds.includes(p.id));
+        document.getElementById('list-hints-status').innerHTML = alive.map(p => `
+            <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+                <span>${p.name}</span><div class="dot ${this.hints[p.id] ? 'on' : ''}"></div>
+            </div>
+        `).join('');
+    },
+
+    sendHint() {
+        const h = document.getElementById('hint-val').value.trim().toUpperCase();
+        if(!h) return;
+        Sfx.click();
+        document.getElementById('hint-input-box').style.display = 'none';
+        document.getElementById('wait-hints').style.display = 'block';
+        if(this.isHost) { this.hints[this.myId] = h; this.bcast({type:'live-h', h: this.hints}); this.checkHints(); }
+        else this.conn.send({type:'h-sync', h});
+    },
+
+    checkHints() {
+        this.updateHintsStatus();
+        if(Object.keys(this.hints).length === (this.players.length - this.deadIds.length)) {
+            setTimeout(() => { this.bcast({type:'go-vote', h: this.hints}); this.onVotePhase(); }, 600);
+        }
+    },
+
+    onVotePhase() {
+        this.nav('scr-vote');
+        const others = this.players.filter(p => !this.deadIds.includes(p.id) && p.id !== this.myId);
+        document.getElementById('list-voting').innerHTML = others.map(p => `
+            <div class="card" id="vc-${p.id}" onclick="App.selV('${p.id}')"><b>${p.name}</b><br><small>"${this.hints[p.id]}"</small></div>
+        `).join('');
+        document.getElementById('btn-confirm-vote').disabled = true;
+    },
+
+    selV(id) { Sfx.click(); this.selectedVoteId = id;
+        document.querySelectorAll('#list-voting .card').forEach(c => c.classList.remove('selected'));
+        document.getElementById('vc-'+id).classList.add('selected');
+        document.getElementById('btn-confirm-vote').disabled = false;
+    },
+
+    confirmVote() {
+        Sfx.click(); document.getElementById('btn-confirm-vote').disabled = true;
+        if(this.isHost) { this.votes[this.myId] = this.selectedVoteId; this.checkVotes(); }
+        else this.conn.send({type:'v-sync', tid: this.selectedVoteId});
+    },
+
+    checkVotes() {
+        if(Object.keys(this.votes).length === (this.players.length - this.deadIds.length)) {
+            const vArr = Object.values(this.votes);
+            const counts = {}; vArr.forEach(v => counts[v] = (counts[v]||0)+1);
+            const tid = Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+            const over = (tid === this.impId) || ((this.players.length - this.deadIds.length - 1) <= 2);
+            this.bcast({type:'scrum', v: this.votes, tid, over});
+            this.startEscrutinio(this.votes, tid, over);
+        }
+    },
+
+    startEscrutinio(votes, tid, over) {
+        this.nav('scr-counting');
+        const alive = this.players.filter(p => !this.deadIds.includes(p.id));
+        document.getElementById('counting-bars-container').innerHTML = alive.map(p => `
+            <div class="vote-row">
+                <div style="display:flex; justify-content:space-between"><span>${p.name}</span><b id="num-${p.id}">0</b></div>
+                <div class="bar-bg"><div class="bar-fill" id="fill-${p.id}"></div></div>
+            </div>
+        `).join('');
+
+        let i = 0, keys = Object.keys(votes);
+        let interval = setInterval(() => {
+            if(i >= keys.length) { clearInterval(interval); 
+                setTimeout(() => { this.deadIds.push(tid); this.showReveal(tid, over); }, 1200); return; 
+            }
+            let targetId = votes[keys[i]];
+            let currCount = Object.values(votes).slice(0, i+1).filter(v => v === targetId).length;
+            let fill = document.getElementById('fill-'+targetId);
+            if(fill) { fill.style.width = (currCount / keys.length * 100) + '%'; 
+                       document.getElementById('num-'+targetId).innerText = currCount; Sfx.click(); }
+            i++;
+        }, 500);
+    },
+
+    showReveal(tid, over) {
+        const p = this.players.find(x => x.id === tid);
+        this.nav('scr-result');
+        document.getElementById('res-name').innerText = p.name;
+        document.getElementById('res-role').innerText = (tid === this.impId) ? "ERA EL IMPOSTOR" : "ERA TRIPULANTE";
+        document.getElementById('res-role').style.color = (tid === this.impId) ? "var(--green)" : "var(--red)";
+        if(over) { Sfx.win(); document.getElementById('game-status-msg').innerText = (tid === this.impId) ? "¡VICTORIA TRIPULANTES!" : "¡EL IMPOSTOR GANA!";
+            document.getElementById('btn-restart').style.display = 'block'; document.getElementById('btn-next').style.display = 'none';
+        } else { Sfx.alert(); document.getElementById('game-status-msg').innerText = "LA AMENAZA SIGUE VIVA...";
+            document.getElementById('btn-next').style.display = 'block';
+        }
+    },
+
+    nextRound() { if(this.isHost) { this.bcast({type:'next'}); this.onStart(this.wordObj, this.impId, false); } },
+    
+    nav(id) {
+        const current = document.querySelector('.screen.active');
+        if(current) current.classList.remove('active');
+        setTimeout(() => {
+            const next = document.getElementById(id);
+            next.style.display = 'flex';
+            setTimeout(() => next.classList.add('active'), 50);
+        }, 100);
+    }
+};
+</script>
+</body>
+</html>
